@@ -1,11 +1,13 @@
 # MBS
 
-Minimum Barrier Superpixel Segmentation
+code for
 
-A concise superpixel algorithm based on minimum barrier distance transform (MBS).
+¡¶Minimum Barrier Superpixel Segmentation¡·submitted to IVC.
 
-MBS can achieve higher boundary recall compared with SLIC, and about 15% faster than it.
+A concise superpixel algorithm based on minimum barrier distance (MBS).
 
-![avatar](./data/demo.png)
+MBS can achieve higher boundary recall than SLIC under similar compactness, and about 15% faster than it.
 
-![avatar](./data/eval.png)
+<center>![avatar](./data/demo.png)</center>
+
+<center>![avatar](./data/eval.png)</center>
