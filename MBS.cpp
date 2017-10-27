@@ -5,11 +5,22 @@ MBS::MBS()
 {
 	_alpha = 0.1;
 	_spSize = 400;
+
+	_labels = NULL;
+
+	_imgWidth = 0;
+	_imgHeight = 0;
+	_seedsWidth = 0;
+	_seedsHeight = 0;
+	_spCnt = 0;
 }
 
 MBS::~MBS()
 {
-
+	if (_labels){
+		delete[] _labels;
+		_labels = NULL;
+	}
 }
 
 void MBS::SetAlpha(double alpha)
@@ -22,29 +33,31 @@ void MBS::SetSuperpixelSize(int spSize)
 	_spSize = spSize;
 }
 
-int MBS::SuperpixelSegmentation(cv::Mat& image, int* outLabels)
+int MBS::SuperpixelSegmentation(cv::Mat& image)
 {
 	cv::Mat sImg; // smoothed image
 	cv::boxFilter(image, sImg, -1, cv::Size(5, 5));
 
 	int w = sImg.cols;
 	int h = sImg.rows;
+	_imgWidth = w;
+	_imgHeight = h;
 
 	// generate grid seeds
 /*	int spSize = (w*h) / _spSize;*/
 	int step = sqrt((double)_spSize) + 0.5;
-	int gridw = w / step;
-	int gridh = h / step;
-	int xoffset = (w - (gridw - 1)*step) / 2;
-	int yoffset = (h - (gridh - 1)*step) / 2;
-	int numV = gridw * gridh;
+	_seedsWidth = w / step;
+	_seedsHeight = h / step;
+	int xoffset = (w - (_seedsWidth - 1)*step) / 2;
+	int yoffset = (h - (_seedsHeight - 1)*step) / 2;
+	int numV = _seedsWidth * _seedsHeight;
 	float* seedsX = new float[numV];
 	float* seedsY = new float[numV];
 	memset(seedsX, 0, numV*sizeof(float));
 	memset(seedsY, 0, numV*sizeof(float));
 	for (int i = 0; i < numV; i++){
-		int gridX = i % gridw;
-		int gridY = i / gridw;
+		int gridX = i % _seedsWidth;
+		int gridY = i / _seedsWidth;
 		seedsX[i] = gridX * step + xoffset;
 		seedsY[i] = gridY * step + yoffset;
 	}
@@ -66,9 +79,13 @@ int MBS::SuperpixelSegmentation(cv::Mat& image, int* outLabels)
 	//printf("%d levels\n", pyd.nlevels());
 
 	// from top to bottom
+	if (_labels){
+		delete[] _labels;
+	}
+	_labels = new int[w*h];
+
 	float* tmpSeedsX = new float[numV];
 	float* tmpSeedsY = new float[numV];
-	int* tmpLabels = new int[w*h];
 	for (int i = 0; i < numV; i++){
 		tmpSeedsX[i] = seedsX[i] * pow(scaleRatio, pydLevels - 1);
 		tmpSeedsY[i] = seedsY[i] * pow(scaleRatio, pydLevels - 1);
@@ -76,7 +93,7 @@ int MBS::SuperpixelSegmentation(cv::Mat& image, int* outLabels)
 
 	for (int k = pydLevels - 1; k >= 0; k--){
 		int size = _spSize*pow(scaleRatio, 2 * k);
-		FastMBD(pyd[k], tmpLabels, size, 1, 4, _alpha, tmpSeedsX, tmpSeedsY, numV);
+		FastMBD(pyd[k], _labels, size, 1, 4, _alpha, tmpSeedsX, tmpSeedsY, numV);
 
 		for (int i = 0; i < numV; i++){
 			tmpSeedsX[i] /= scaleRatio;
@@ -85,17 +102,63 @@ int MBS::SuperpixelSegmentation(cv::Mat& image, int* outLabels)
 	}
 
 	// remove outliers
-	int num_sp = RemoveOutliers(tmpLabels, outLabels, w, h, _spSize);
+	_spCnt = numV;
+	MergeComponents(_labels, w, h);
 
 	delete[] tmpSeedsX;
 	delete[] tmpSeedsY;
-	delete[] tmpLabels;
 
 	delete[] seedsX;
 	delete[] seedsY;
 	delete[] pyd;
 
-	return num_sp;
+	return _spCnt;
+}
+
+int* MBS::GetSuperpixelLabels()
+{
+	return _labels;
+}
+
+void MBS::GetSeedsDimension(int* outWidth, int* outHeight)
+{
+	*outWidth = _seedsWidth;
+	*outHeight = _seedsHeight;
+}
+
+cv::Mat MBS::GetSuperpixelElements()
+{
+	// get the maximum number of elements
+	int* elemCnts = new int[_spCnt];
+	memset(elemCnts, 0, _spCnt*sizeof(int));
+	for (int i = 0; i < _imgHeight; i++){
+		for (int j = 0; j < _imgWidth; j++){
+			int lab = _labels[i*_imgWidth + j];
+			elemCnts[lab]++;
+		}
+	}
+	int maxNum = -1;
+	for (int i = 0; i < _spCnt; i++){
+		if (elemCnts[i] > maxNum){
+			maxNum = elemCnts[i];
+		}
+	}
+
+	// get the elements of each superpixel
+	cv::Mat elem(_spCnt, maxNum + 1, CV_32SC1);
+	elem.setTo(-1);
+	memset(elemCnts, 0, _spCnt*sizeof(int));
+	for (int i = 0; i < _imgHeight; i++){
+		for (int j = 0; j < _imgWidth; j++){
+			int pixIdx = i*_imgWidth + j;
+			int lab = _labels[pixIdx];
+			elem.at<int>(lab, elemCnts[lab]) = pixIdx;
+			elemCnts[lab]++;
+		}
+	}
+
+	delete[] elemCnts;
+	return elem;
 }
 
 // Fast Approximate MBD (Minimum Barrier Distance) Transform
@@ -247,30 +310,45 @@ int MBS::FastMBD(cv::Mat& img, int* labels, int spSize, int outIter, int inIter,
 	return 0;
 }
 
-// Adapted from SLIC
+// Modified from SLIC
 // ===========================================================================
 // /		1. finding an adjacent label for each new component at the start
 // /		2. if a certain component is too small, assigning the previously found
-// /		    adjacent label to this component, and not incrementing the label.
+// /		    adjacent label to this component.
+// /        3. if the component is the last component for some label, reserve it.
+// /            guarantee that no label will disappear after merge,
+// /            this is important for some applications (Yinlin)
+// /		4. after merge, each label have one and only one component
 // ===========================================================================
-int MBS::RemoveOutliers(int* inLabels, int* outLabels, int w, int h, int spSize)
+void MBS::MergeComponents(int* ioLabels, int w, int h)
 {
 	const int dx4[4] = { -1, 0, 1, 0 };
 	const int dy4[4] = { 0, -1, 0, 1 };
 
-	memset(outLabels, 0xFF, w*h*sizeof(int)); // -1
+	// get the raw element count for each superpixel
+	int* elemCnts = new int[_spCnt];
+	memset(elemCnts, 0, _spCnt*sizeof(int));
+	for (int i = 0; i < h; i++){
+		for (int j = 0; j < w; j++){
+			int lab = ioLabels[i*w + j];
+			elemCnts[lab]++;
+		}
+	}
 
-	int outSegIdx = 0;
+	int* visited = new int[w*h];
+	memset(visited, 0, w*h*sizeof(int));
+
 	int* xvec = new int[w*h];
 	int* yvec = new int[w*h];
 
-	int pixIdx = 0;
-	int adjSegIdx = 0; //adjacent segmentation label
+	int currLabel = -1; //current superpixel label
+	int adjLabel = -1; //adjacent superpixel label
 
 	for (int i = 0; i < h; i++){
 		for (int j = 0; j < w; j++){
-			if (outLabels[pixIdx] < 0){
-				outLabels[pixIdx] = outSegIdx;
+			int pixIdx = i*w + j;
+			if (!visited[pixIdx]){
+				currLabel = ioLabels[pixIdx];
 				//--------------------
 				// Start a new segment
 				//--------------------
@@ -284,23 +362,26 @@ int MBS::RemoveOutliers(int* inLabels, int* outLabels, int w, int h, int spSize)
 					int y = yvec[0] + dy4[n];
 					if ((x >= 0 && x < w) && (y >= 0 && y < h)){
 						int nbIdx = y*w + x;
-						if (outLabels[nbIdx] >= 0)
-							adjSegIdx = outLabels[nbIdx];
+						if (visited[nbIdx]){
+							adjLabel = ioLabels[nbIdx];
+						}
 					}
 				}
 
+				// get current component size
 				int count = 1;
+				visited[pixIdx] = 1;
 				for (int c = 0; c < count; c++){
 					for (int n = 0; n < 4; n++){
 						int x = xvec[c] + dx4[n];
 						int y = yvec[c] + dy4[n];
 						if ((x >= 0 && x < w) && (y >= 0 && y < h)){
 							int nbIdx = y*w + x;
-							if (outLabels[nbIdx] < 0
-								&& inLabels[pixIdx] == inLabels[nbIdx]){
+							if (!visited[nbIdx] 
+								&& currLabel == ioLabels[nbIdx]){
 								xvec[count] = x;
 								yvec[count] = y;
-								outLabels[nbIdx] = outSegIdx;
+								visited[nbIdx] = 1;
 								count++;
 							}
 						}
@@ -308,26 +389,30 @@ int MBS::RemoveOutliers(int* inLabels, int* outLabels, int w, int h, int spSize)
 				}
 				//-------------------------------------------------------
 				// If segment size is less then a limit, assign an
-				// adjacent label found before, and decrement label count.
+				// adjacent label found before.
 				//-------------------------------------------------------
-				if (count <= 10/*(spSize >> 3)*/){
-					for (int c = 0; c < count; c++){
-						int ind = yvec[c] * w + xvec[c];
-						outLabels[ind] = adjSegIdx;
+				if (count <= (_spSize >> 3)){
+					int remainCnt = elemCnts[currLabel] - count;
+					if (remainCnt > 0){
+						for (int c = 0; c < count; c++){
+							int ind = yvec[c] * w + xvec[c];
+							ioLabels[ind] = adjLabel;
+						}
+						elemCnts[currLabel] = remainCnt;
 					}
-					outSegIdx--;
 				}
-				outSegIdx++;
 			}
-			pixIdx++;
+			//
 		}
 	}
 	delete[] xvec;
 	delete[] yvec;
-	return outSegIdx; // number of out labels
+
+	delete[] visited;
+	delete[] elemCnts;
 }
 
-cv::Mat MBS::SuperpixelVisualization(cv::Mat& image, int* inLabels)
+cv::Mat MBS::Visualization(cv::Mat& image)
 {
 	int w = image.cols;
 	int h = image.rows;
@@ -343,7 +428,7 @@ cv::Mat MBS::SuperpixelVisualization(cv::Mat& image, int* inLabels)
 				int nbi = i + nbOffset[k][0];
 				int nbj = j + nbOffset[k][1];
 				if (nbi >= 0 && nbi < h&&nbj >= 0 && nbj < w){
-					if (inLabels[i*w + j] != inLabels[nbi*w + nbj]){
+					if (_labels[i*w + j] != _labels[nbi*w + nbj]){
 						diffCnt++;
 					}
 				}
@@ -365,5 +450,30 @@ cv::Mat MBS::SuperpixelVisualization(cv::Mat& image, int* inLabels)
 	}
 
 	delete[] bound;
+	return visImg;
+}
+
+cv::Mat MBS::Visualization()
+{
+	cv::Mat visImg(_imgHeight, _imgWidth, CV_8UC3);
+	cv::Mat elem = GetSuperpixelElements();
+	uchar color[3];
+	srand(0);
+	for (int i = 0; i < _spCnt; i++){
+		// generate random color for each superpixel
+		color[0] = rand() % 200 + 50;
+		color[1] = rand() % 200 + 50;
+		color[2] = rand() % 200 + 50;
+		for (int j = 0; j < elem.cols; j++){
+			int pixIdx = elem.at<int>(i, j);
+			if (pixIdx < 0){
+				break;
+			}
+			int x = pixIdx % _imgWidth;
+			int y = pixIdx / _imgWidth;
+			cv::Vec3b* pRow = visImg.ptr<cv::Vec3b>(y);
+			memcpy(pRow + x, color, 3 * sizeof(uchar));
+		}
+	}
 	return visImg;
 }

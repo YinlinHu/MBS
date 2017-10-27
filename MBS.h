@@ -18,32 +18,44 @@ public:
 	/* parameter setting functions                                          */
 	/************************************************************************/
 	// control compactness, small alpha leads to more compact superpixels,
-	// [0-1] is fine, the default is 0.1 which is suitable for most cases.
+	// [0-1] is fine, the default is 0.1 which is suitable for most cases
 	void SetAlpha(double alpha);
 	
-	// set the average size of superpixels, 
-	// please use number larger than 20.
+	// set the average size of superpixels
 	void SetSuperpixelSize(int spSize);
 
 	/************************************************************************/
 	/* do the over-segmentation                                             */
 	/************************************************************************/
-	int SuperpixelSegmentation(cv::Mat& image, int* outLabels);
+	int SuperpixelSegmentation(cv::Mat& image);
 
 	/************************************************************************/
 	/* utility functions                                                    */
 	/************************************************************************/
-	static cv::Mat SuperpixelVisualization(cv::Mat& image, int* inLabels);
+	int* GetSuperpixelLabels();
+	void GetSeedsDimension(int* outWidth, int* outHeight);
+	cv::Mat GetSuperpixelElements();
+	
+	cv::Mat Visualization();
+	cv::Mat Visualization(cv::Mat& image);
 
 private:
 	void DistanceTransform_MBD(cv::Mat& image, float* seedsX, float* seedsY, 
 		int cnt, int* labels, float* dmap, float factor, int iter = 4);
 	int FastMBD(cv::Mat& img, int* labels, int spSize, int outIter, int inIter, 
 		float alpha, float* seedsX, float* seedsY, int cnt);
-	int RemoveOutliers(int* inLabels, int* outLabels, int w, int h, int spSize);
-
+	void MergeComponents(int* ioLabels, int w, int h);
 	double _alpha;
 	int _spSize;
+
+	int* _labels;
+
+	int _imgWidth;
+	int _imgHeight;
+	int _seedsWidth;
+	int _seedsHeight;
+	int _spCnt;
+
 };
 
 #endif // _MBS_H_
