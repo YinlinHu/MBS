@@ -33,7 +33,7 @@ public:
 	/* utility functions                                                    */
 	/************************************************************************/
 	int* GetSuperpixelLabels();
-	void GetSeedsDimension(int* outWidth, int* outHeight);
+	cv::Mat GetSeeds();
 	cv::Mat GetSuperpixelElements();
 	
 	cv::Mat Visualization();
@@ -50,10 +50,10 @@ private:
 
 	int* _labels;
 
+	cv::Mat _seeds;
+
 	int _imgWidth;
 	int _imgHeight;
-	int _seedsWidth;
-	int _seedsHeight;
 	int _spCnt;
 
 };

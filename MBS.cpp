@@ -10,8 +10,6 @@ MBS::MBS()
 
 	_imgWidth = 0;
 	_imgHeight = 0;
-	_seedsWidth = 0;
-	_seedsHeight = 0;
 	_spCnt = 0;
 }
 
@@ -46,20 +44,19 @@ int MBS::SuperpixelSegmentation(cv::Mat& image)
 	// generate grid seeds
 /*	int spSize = (w*h) / _spSize;*/
 	int step = sqrt((double)_spSize) + 0.5;
-	_seedsWidth = w / step;
-	_seedsHeight = h / step;
-	int xoffset = (w - (_seedsWidth - 1)*step) / 2;
-	int yoffset = (h - (_seedsHeight - 1)*step) / 2;
-	int numV = _seedsWidth * _seedsHeight;
-	float* seedsX = new float[numV];
-	float* seedsY = new float[numV];
-	memset(seedsX, 0, numV*sizeof(float));
-	memset(seedsY, 0, numV*sizeof(float));
-	for (int i = 0; i < numV; i++){
-		int gridX = i % _seedsWidth;
-		int gridY = i / _seedsWidth;
-		seedsX[i] = gridX * step + xoffset;
-		seedsY[i] = gridY * step + yoffset;
+	int seedsWidth = w / step;
+	int seedsHeight = h / step;
+	_seeds.create(seedsHeight, seedsWidth, CV_32SC2);
+
+	int xoffset = (w - (seedsWidth - 1)*step) / 2;
+	int yoffset = (h - (seedsHeight - 1)*step) / 2;
+	int numV = seedsWidth * seedsHeight;
+	for (int i = 0; i < seedsHeight; i++){
+		cv::Vec2i* pi = _seeds.ptr<cv::Vec2i>(i);
+		for (int j = 0; j < seedsWidth; j++){
+			pi[j][0] = j*step + xoffset;
+			pi[j][1] = i*step + yoffset;
+		}
 	}
 
 	// refine seeds on pyramid
@@ -87,17 +84,20 @@ int MBS::SuperpixelSegmentation(cv::Mat& image)
 	float* tmpSeedsX = new float[numV];
 	float* tmpSeedsY = new float[numV];
 	for (int i = 0; i < numV; i++){
-		tmpSeedsX[i] = seedsX[i] * pow(scaleRatio, pydLevels - 1);
-		tmpSeedsY[i] = seedsY[i] * pow(scaleRatio, pydLevels - 1);
+		int sx = i % seedsWidth;
+		int sy = i / seedsWidth;
+		tmpSeedsX[i] = _seeds.at<cv::Vec2i>(sy, sx)[0] * pow(scaleRatio, pydLevels - 1);
+		tmpSeedsY[i] = _seeds.at<cv::Vec2i>(sy, sx)[1] * pow(scaleRatio, pydLevels - 1);
 	}
 
 	for (int k = pydLevels - 1; k >= 0; k--){
 		int size = _spSize*pow(scaleRatio, 2 * k);
 		FastMBD(pyd[k], _labels, size, 1, 4, _alpha, tmpSeedsX, tmpSeedsY, numV);
-
-		for (int i = 0; i < numV; i++){
-			tmpSeedsX[i] /= scaleRatio;
-			tmpSeedsY[i] /= scaleRatio;
+		if (k > 0){
+			for (int i = 0; i < numV; i++){
+				tmpSeedsX[i] /= scaleRatio;
+				tmpSeedsY[i] /= scaleRatio;
+			}
 		}
 	}
 
@@ -107,9 +107,6 @@ int MBS::SuperpixelSegmentation(cv::Mat& image)
 
 	delete[] tmpSeedsX;
 	delete[] tmpSeedsY;
-
-	delete[] seedsX;
-	delete[] seedsY;
 	delete[] pyd;
 
 	return _spCnt;
@@ -120,10 +117,9 @@ int* MBS::GetSuperpixelLabels()
 	return _labels;
 }
 
-void MBS::GetSeedsDimension(int* outWidth, int* outHeight)
+cv::Mat MBS::GetSeeds()
 {
-	*outWidth = _seedsWidth;
-	*outHeight = _seedsHeight;
+	return _seeds;
 }
 
 cv::Mat MBS::GetSuperpixelElements()
@@ -389,7 +385,8 @@ void MBS::MergeComponents(int* ioLabels, int w, int h)
 				}
 				//-------------------------------------------------------
 				// If segment size is less then a limit, assign an
-				// adjacent label found before.
+				// adjacent label found before. Furthermore, make sure that
+				// no label will disappear after merge
 				//-------------------------------------------------------
 				if (count <= (_spSize >> 3)){
 					int remainCnt = elemCnts[currLabel] - count;
