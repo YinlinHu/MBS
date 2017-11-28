@@ -4,8 +4,6 @@ code for
 
 《Minimum Barrier Superpixel Segmentation》 submitted to IVC.
 
-A concise superpixel algorithm based on minimum barrier distance (MBS).
-
-MBS can achieve higher boundary recall than SLIC under similar compactness, and about 15% faster than it.
+A fast superpixel algorithm based on compact-aware minimum barrier distance (MBS).
 
 ![avatar](./data/demo.png)
