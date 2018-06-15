@@ -1,5 +1,6 @@
 
 #include "MBS.h"
+#include <algorithm>
 
 MBS::MBS()
 {
@@ -216,18 +217,18 @@ void MBS::DistanceTransform_MBD(cv::Mat& image, float* seedsX, float* seedsY, in
 							cv::Vec3b cd2 = L.at<cv::Vec3b>(candiy, candix);
 
 							uchar maxCost[3], minCost[3];
-							maxCost[0] = __max(cd1[0], pi[j][0]);
-							maxCost[1] = __max(cd1[1], pi[j][1]);
-							maxCost[2] = __max(cd1[2], pi[j][2]);
-							minCost[0] = __min(cd2[0], pi[j][0]);
-							minCost[1] = __min(cd2[1], pi[j][1]);
-							minCost[2] = __min(cd2[2], pi[j][2]);
+							maxCost[0] = std::max(cd1[0], pi[j][0]);
+							maxCost[1] = std::max(cd1[1], pi[j][1]);
+							maxCost[2] = std::max(cd1[2], pi[j][2]);
+							minCost[0] = std::min(cd2[0], pi[j][0]);
+							minCost[1] = std::min(cd2[1], pi[j][1]);
+							minCost[2] = std::min(cd2[2], pi[j][2]);
 
 							int colorDis[3];
 							colorDis[0] = maxCost[0] - minCost[0];
 							colorDis[1] = maxCost[1] - minCost[1];
 							colorDis[2] = maxCost[2] - minCost[2];
-							float cDis = __max(__max(colorDis[0], colorDis[1]), colorDis[2]) / 255.;
+							float cDis = std::max(std::max(colorDis[0], colorDis[1]), colorDis[2]) / 255.;
 
 							float sDis2 = (seedsX[sIdx] - j)*(seedsX[sIdx] - j) + (seedsY[sIdx] - i)*(seedsY[sIdx] - i);
 							float dis = cDis*cDis + factor*sDis2;

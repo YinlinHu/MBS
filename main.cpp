@@ -32,7 +32,8 @@ int main(int argc, char** argv)
 	int spCnt = mbs.SuperpixelSegmentation(img);
 
 	// Visualization
-	cv::Mat spVisual = mbs.Visualization();
+	// cv::Mat spVisual = mbs.Visualization();
+    cv::Mat spVisual = mbs.Visualization(img);
 #ifdef DEBUG_YL
 	printf("%d\n", spCnt);
 	cv::imshow("MBS out", spVisual);
